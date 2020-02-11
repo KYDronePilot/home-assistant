@@ -287,15 +287,23 @@ class SamsungTVDevice(MediaPlayerDevice):
             LOGGER.error("Unsupported media type")
             return
 
-        # media_id should only be a channel number
+        # media_id should only be a channel with optional sub-channel (ex: 20-1)
         try:
-            cv.positive_int(media_id)
+            cv.positive_int(media_id.replace("-", "", 1))
+            # Hyphen must be between numbers
+            if media_id.startswith("-") or media_id.endswith("-"):
+                raise vol.Invalid("")
         except vol.Invalid:
-            LOGGER.error("Media ID must be positive integer")
+            LOGGER.error(
+                "Media ID channel must be of the form 'channel[-sub_channel]'"
+                " where both are positive integers and the sub-channel is optional"
+            )
             return
 
         for digit in media_id:
-            await self.hass.async_add_executor_job(self.send_key, f"KEY_{digit}")
+            await self.hass.async_add_executor_job(
+                self.send_key, "KEY_PLUS100" if digit == "-" else f"KEY_{digit}"
+            )
             await asyncio.sleep(KEY_PRESS_TIMEOUT, self.hass.loop)
         await self.hass.async_add_executor_job(self.send_key, "KEY_ENTER")
 

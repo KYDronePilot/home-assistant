@@ -490,8 +490,17 @@ async def test_turn_on_without_turnon(hass, remote):
     assert remote.control.call_count == 0
 
 
-async def test_play_media(hass, remote):
-    """Test for play_media."""
+async def generic_play_media_channel_test(
+    hass,
+    remote_mock,
+    media_type,
+    channel,
+    keys_sent,
+    error_call_count,
+    remote_close_calls,
+    sleep_count,
+):
+    """play_media channel generic test to build other parameter-specifying tests on."""
     asyncio_sleep = asyncio.sleep
     sleeps = []
 
@@ -500,96 +509,122 @@ async def test_play_media(hass, remote):
         await asyncio_sleep(0, loop=loop)
 
     await setup_samsungtv(hass, MOCK_CONFIG)
-    with patch("asyncio.sleep", new=sleep):
+    with patch("asyncio.sleep", new=sleep), patch(
+        "homeassistant.components.samsungtv.const.LOGGER.error"
+    ) as mock_error_logger:
         assert await hass.services.async_call(
             DOMAIN,
             SERVICE_PLAY_MEDIA,
             {
                 ATTR_ENTITY_ID: ENTITY_ID,
-                ATTR_MEDIA_CONTENT_TYPE: MEDIA_TYPE_CHANNEL,
-                ATTR_MEDIA_CONTENT_ID: "576",
+                ATTR_MEDIA_CONTENT_TYPE: media_type,
+                ATTR_MEDIA_CONTENT_ID: channel,
             },
             True,
         )
-        # keys and update called
-        assert remote.control.call_count == 4
-        assert remote.control.call_args_list == [
-            call("KEY_5"),
-            call("KEY_7"),
-            call("KEY_6"),
-            call("KEY_ENTER"),
-        ]
-        assert remote.close.call_count == 1
-        assert remote.close.call_args_list == [call()]
-        assert len(sleeps) == 3
+        # Ensure parameters match actual values
+        assert mock_error_logger.call_count == error_call_count
+        assert remote_mock.control.call_args_list == [call(key) for key in keys_sent]
+        assert remote_mock.close.call_args_list == remote_close_calls
+        assert len(sleeps) == sleep_count
 
 
-async def test_play_media_invalid_type(hass, remote):
-    """Test for play_media with invalid media type."""
-    with patch(
-        "homeassistant.components.samsungtv.media_player.SamsungRemote"
-    ) as remote, patch("homeassistant.components.samsungtv.config_flow.socket"):
-        url = "https://example.com"
-        await setup_samsungtv(hass, MOCK_CONFIG)
-        assert await hass.services.async_call(
-            DOMAIN,
-            SERVICE_PLAY_MEDIA,
-            {
-                ATTR_ENTITY_ID: ENTITY_ID,
-                ATTR_MEDIA_CONTENT_TYPE: MEDIA_TYPE_URL,
-                ATTR_MEDIA_CONTENT_ID: url,
-            },
-            True,
-        )
-        # only update called
-        assert remote.control.call_count == 0
-        assert remote.close.call_count == 0
-        assert remote.call_count == 1
+async def test_play_media_channel_as_valid_channel(hass, remote):
+    """play_media channel test with valid channel."""
+    await generic_play_media_channel_test(
+        hass=hass,
+        remote_mock=remote,
+        media_type=MEDIA_TYPE_CHANNEL,
+        channel="576",
+        keys_sent=["KEY_5", "KEY_7", "KEY_6", "KEY_ENTER"],
+        error_call_count=0,
+        remote_close_calls=[call()],
+        sleep_count=3,
+    )
 
 
-async def test_play_media_channel_as_string(hass, remote):
-    """Test for play_media with invalid channel as string."""
-    with patch(
-        "homeassistant.components.samsungtv.media_player.SamsungRemote"
-    ) as remote, patch("homeassistant.components.samsungtv.config_flow.socket"):
-        url = "https://example.com"
-        await setup_samsungtv(hass, MOCK_CONFIG)
-        assert await hass.services.async_call(
-            DOMAIN,
-            SERVICE_PLAY_MEDIA,
-            {
-                ATTR_ENTITY_ID: ENTITY_ID,
-                ATTR_MEDIA_CONTENT_TYPE: MEDIA_TYPE_CHANNEL,
-                ATTR_MEDIA_CONTENT_ID: url,
-            },
-            True,
-        )
-        # only update called
-        assert remote.control.call_count == 0
-        assert remote.close.call_count == 0
-        assert remote.call_count == 1
+async def test_play_media_channel_as_valid_channel_and_sub_channel(hass, remote):
+    """play_media channel test with valid channel and sub-channel."""
+    await generic_play_media_channel_test(
+        hass=hass,
+        remote_mock=remote,
+        media_type=MEDIA_TYPE_CHANNEL,
+        channel="2-4",
+        keys_sent=["KEY_2", "KEY_PLUS100", "KEY_4", "KEY_ENTER"],
+        error_call_count=0,
+        remote_close_calls=[call()],
+        sleep_count=3,
+    )
 
 
-async def test_play_media_channel_as_non_positive(hass, remote):
-    """Test for play_media with invalid channel as non positive integer."""
-    with patch(
-        "homeassistant.components.samsungtv.media_player.SamsungRemote"
-    ) as remote, patch("homeassistant.components.samsungtv.config_flow.socket"):
-        await setup_samsungtv(hass, MOCK_CONFIG)
-        assert await hass.services.async_call(
-            DOMAIN,
-            SERVICE_PLAY_MEDIA,
-            {
-                ATTR_ENTITY_ID: ENTITY_ID,
-                ATTR_MEDIA_CONTENT_TYPE: MEDIA_TYPE_CHANNEL,
-                ATTR_MEDIA_CONTENT_ID: "-4",
-            },
-            True,
-        )
-        # only update called
-        assert remote.control.call_count == 0
-        assert remote.close.call_count == 0
-        assert remote.call_count == 1
+async def test_play_media_channel_as_invalid_type(hass, remote):
+    """play_media channel test with invalid media type (URL instead of channel type)."""
+    await generic_play_media_channel_test(
+        hass=hass,
+        remote_mock=remote,
+        media_type=MEDIA_TYPE_URL,
+        channel="https://example.com",
+        keys_sent=[],
+        error_call_count=1,
+        remote_close_calls=[],
+        sleep_count=0,
+    )
+
+
+async def test_play_media_channel_as_invalid_channel(hass, remote):
+    """play_media channel test with an invalid channel."""
+    await generic_play_media_channel_test(
+        hass=hass,
+        remote_mock=remote,
+        media_type=MEDIA_TYPE_CHANNEL,
+        channel="https://example.com",
+        keys_sent=[],
+        error_call_count=1,
+        remote_close_calls=[],
+        sleep_count=0,
+    )
+
+
+async def test_play_media_channel_as_missing_channel(hass, remote):
+    """play_media channel test with invalid channel, having only a sub-channel."""
+    await generic_play_media_channel_test(
+        hass=hass,
+        remote_mock=remote,
+        media_type=MEDIA_TYPE_CHANNEL,
+        channel="-4",
+        keys_sent=[],
+        error_call_count=1,
+        remote_close_calls=[],
+        sleep_count=0,
+    )
+
+
+async def test_play_media_channel_as_missing_sub_channel(hass, remote):
+    """play_media channel test with invalid channel, missing a sub-channel."""
+    await generic_play_media_channel_test(
+        hass=hass,
+        remote_mock=remote,
+        media_type=MEDIA_TYPE_CHANNEL,
+        channel="2-",
+        keys_sent=[],
+        error_call_count=1,
+        remote_close_calls=[],
+        sleep_count=0,
+    )
+
+
+async def test_play_media_channel_as_blank_channel(hass, remote):
+    """play_media channel test with invalid, blank channel."""
+    await generic_play_media_channel_test(
+        hass=hass,
+        remote_mock=remote,
+        media_type=MEDIA_TYPE_CHANNEL,
+        channel="",
+        keys_sent=[],
+        error_call_count=1,
+        remote_close_calls=[],
+        sleep_count=0,
+    )
 
 
 async def test_select_source(hass, remote):
